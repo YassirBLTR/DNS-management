@@ -1,0 +1,487 @@
+{% extends "base.html" %}
+
+{% block title %}Manage Domains - {{ account.name }} - DNS Management System{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
+    <h1 class="h2"><i class="fas fa-globe"></i> Domains - {{ account.name }}</h1>
+    <a href="/accounts" class="btn btn-secondary">
+        <i class="fas fa-arrow-left"></i> Back to Accounts
+    </a>
+</div>
+
+<!-- Search and Controls Row -->
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-body">
+                <div class="row align-items-center">
+                    <div class="col-md-6">
+                        <form method="get" action="/domains/{{ account.id }}" class="d-flex">
+                            <input type="text" class="form-control me-2" name="search" 
+                                   placeholder="Search domains..." value="{{ search }}"
+                                   id="searchInput">
+                            <input type="hidden" name="per_page" value="{{ per_page }}">
+                            <button type="submit" class="btn btn-outline-primary me-2">
+                                <i class="fas fa-search"></i>
+                            </button>
+                            {% if search %}
+                            <a href="/domains/{{ account.id }}" class="btn btn-outline-secondary">
+                                <i class="fas fa-times"></i>
+                            </a>
+                            {% endif %}
+                        </form>
+                    </div>
+                    <div class="col-md-6 text-end">
+                        <button type="button" class="btn btn-success" data-bs-toggle="modal" data-bs-target="#addDomainsModal">
+                            <i class="fas fa-plus"></i> Add Domains
+                        </button>
+                        <div class="btn-group ms-2">
+                            <button type="button" class="btn btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown">
+                                {% if per_page == "all" %}
+                                    <i class="fas fa-list"></i> Show All
+                                {% else %}
+                                    {{ per_page }} per page
+                                {% endif %}
+                            </button>
+                            <ul class="dropdown-menu">
+                                <li><a class="dropdown-item" href="?page=1&per_page=5{% if search %}&search={{ search }}{% endif %}">5 per page</a></li>
+                                <li><a class="dropdown-item" href="?page=1&per_page=10{% if search %}&search={{ search }}{% endif %}">10 per page</a></li>
+                                <li><a class="dropdown-item" href="?page=1&per_page=25{% if search %}&search={{ search }}{% endif %}">25 per page</a></li>
+                                <li><a class="dropdown-item" href="?page=1&per_page=50{% if search %}&search={{ search }}{% endif %}">50 per page</a></li>
+                                <li><hr class="dropdown-divider"></li>
+                                <li><a class="dropdown-item" href="?page=1&per_page=all{% if search %}&search={{ search }}{% endif %}"><i class="fas fa-list"></i> Show All</a></li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Account Info Row -->
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5><i class="fas fa-info-circle"></i> Account Info</h5>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-3"><strong>Account Name:</strong> {{ account.name }}</div>
+                    <div class="col-md-3"><strong>Created:</strong> {{ account.created_at.strftime('%Y-%m-%d %H:%M') }}</div>
+                    <div class="col-md-3"><strong>Total Domains:</strong> {{ pagination.total if pagination else domains|length }}</div>
+                    <div class="col-md-3">
+                        {% if search %}
+                        <strong>Search Results:</strong> {{ domains|length }} found
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5><i class="fas fa-list"></i> Domain List</h5>
+                <button type="button" class="btn btn-danger btn-sm" onclick="deleteSelected()" id="deleteBtn" style="display: none;">
+                    <i class="fas fa-trash"></i> Delete Selected
+                </button>
+            </div>
+            <div class="card-body">
+                {% if domains %}
+                <form id="deleteForm" method="post" action="/domains/{{ account.id }}/delete">
+                    <div class="table-responsive">
+                        <table class="table table-striped">
+                            <thead>
+                                <tr>
+                                    <th>
+                                        <input type="checkbox" id="selectAll" onchange="toggleAll()">
+                                    </th>
+                                    <th>Domain Name</th>
+                                    <th>Status</th>
+                                    <th>Created</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for domain in domains %}
+                                <tr>
+                                    <td>
+                                        <input type="checkbox" name="domain_ids" value="{{ domain.id }}" 
+                                               class="domain-checkbox" onchange="updateDeleteButton()">
+                                    </td>
+                                    <td>{{ domain.name }}</td>
+                                    <td>
+                                        <span class="badge bg-success">Active</span>
+                                    </td>
+                                    <td>{{ domain.created if domain.created else 'N/A' }}</td>
+                                    <td>
+                                        <button type="button" class="btn btn-danger btn-sm" 
+                                                onclick="deleteSingle({{ domain.id }})">
+                                            <i class="fas fa-trash"></i>
+                                        </button>
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </form>
+                {% else %}
+                <div class="text-center py-4">
+                    <i class="fas fa-globe fa-3x text-muted mb-3"></i>
+                    {% if search %}
+                    <h5>No domains found for "{{ search }}"</h5>
+                    <p class="text-muted">Try adjusting your search terms or <a href="/domains/{{ account.id }}">view all domains</a>.</p>
+                    {% else %}
+                    <h5>No domains found</h5>
+                    <p class="text-muted">Add your first domain to get started with DNS management.</p>
+                    {% endif %}
+                </div>
+                {% endif %}
+            </div>
+            
+            <!-- Pagination -->
+            {% if pagination and pagination.pages > 1 and not show_all %}
+            <div class="card-footer">
+                <nav aria-label="Domain pagination">
+                    <ul class="pagination justify-content-center mb-0">
+                        <!-- Previous page -->
+                        {% if pagination.page > 1 %}
+                        <li class="page-item">
+                            <a class="page-link" href="?page={{ pagination.page - 1 }}&per_page={{ per_page }}{% if search %}&search={{ search }}{% endif %}">
+                                <i class="fas fa-chevron-left"></i> Previous
+                            </a>
+                        </li>
+                        {% else %}
+                        <li class="page-item disabled">
+                            <span class="page-link"><i class="fas fa-chevron-left"></i> Previous</span>
+                        </li>
+                        {% endif %}
+                        
+                        <!-- Page numbers -->
+                        {% for page_num in range(1, pagination.pages + 1) %}
+                            {% if page_num == pagination.page %}
+                            <li class="page-item active">
+                                <span class="page-link">{{ page_num }}</span>
+                            </li>
+                            {% elif page_num <= 3 or page_num > pagination.pages - 3 or (page_num >= pagination.page - 1 and page_num <= pagination.page + 1) %}
+                            <li class="page-item">
+                                <a class="page-link" href="?page={{ page_num }}&per_page={{ per_page }}{% if search %}&search={{ search }}{% endif %}">{{ page_num }}</a>
+                            </li>
+                            {% elif page_num == 4 and pagination.page > 5 %}
+                            <li class="page-item disabled">
+                                <span class="page-link">...</span>
+                            </li>
+                            {% elif page_num == pagination.pages - 3 and pagination.page < pagination.pages - 4 %}
+                            <li class="page-item disabled">
+                                <span class="page-link">...</span>
+                            </li>
+                            {% endif %}
+                        {% endfor %}
+                        
+                        <!-- Next page -->
+                        {% if pagination.page < pagination.pages %}
+                        <li class="page-item">
+                            <a class="page-link" href="?page={{ pagination.page + 1 }}&per_page={{ per_page }}{% if search %}&search={{ search }}{% endif %}">
+                                Next <i class="fas fa-chevron-right"></i>
+                            </a>
+                        </li>
+                        {% else %}
+                        <li class="page-item disabled">
+                            <span class="page-link">Next <i class="fas fa-chevron-right"></i></span>
+                        </li>
+                        {% endif %}
+                    </ul>
+                </nav>
+                
+                <div class="text-center mt-2">
+                    <small class="text-muted">
+                        {% if show_all %}
+                            Showing all {{ pagination.total }} domains
+                        {% else %}
+                            Showing {{ ((pagination.page - 1) * per_page|int + 1) if domains else 0 }} to 
+                            {{ ((pagination.page - 1) * per_page|int + domains|length) if domains else 0 }} of 
+                            {{ pagination.total }} domains
+                        {% endif %}
+                    </small>
+                </div>
+            </div>
+            {% elif show_all and domains %}
+            <!-- Show All Footer -->
+            <div class="card-footer text-center">
+                <small class="text-muted">
+                    <i class="fas fa-info-circle"></i> Showing all {{ pagination.total }} domains (pagination disabled)
+                </small>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<!-- Add Domains Modal -->
+<div class="modal fade" id="addDomainsModal" tabindex="-1" aria-labelledby="addDomainsModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-xl">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="addDomainsModalLabel">
+                    <i class="fas fa-plus"></i> Add Domains
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <!-- Navigation Tabs -->
+                <ul class="nav nav-tabs" id="addDomainsTab" role="tablist">
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link active" id="generate-tab" data-bs-toggle="tab" data-bs-target="#generate" type="button" role="tab">
+                            <i class="fas fa-magic"></i> Generate Subdomains
+                        </button>
+                    </li>
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link" id="custom-tab" data-bs-toggle="tab" data-bs-target="#custom" type="button" role="tab">
+                            <i class="fas fa-edit"></i> Custom Subdomain
+                        </button>
+                    </li>
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link" id="manual-tab" data-bs-toggle="tab" data-bs-target="#manual" type="button" role="tab">
+                            <i class="fas fa-list"></i> Manual Entry
+                        </button>
+                    </li>
+                </ul>
+                
+                <div class="tab-content" id="addDomainsTabContent">
+                    <!-- Generate Subdomains Tab -->
+                    <div class="tab-pane fade show active" id="generate" role="tabpanel">
+                        <form method="post" action="/domains/{{ account.id }}/generate" class="mt-3">
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <div class="mb-3">
+                                        <label for="main_domain" class="form-label">Select Main Domain</label>
+                                        <select class="form-select" id="main_domain" name="main_domain" required>
+                                            <option value="">Choose a main domain...</option>
+                                            {% for domain in main_domains %}
+                                            <option value="{{ domain }}">{{ domain }}</option>
+                                            {% endfor %}
+                                        </select>
+                                    </div>
+                                    
+                                    <div class="mb-3">
+                                        <label for="count" class="form-label">Number of Subdomains</label>
+                                        <input type="number" class="form-control" id="count" name="count" 
+                                               value="10" min="1" max="50" required>
+                                        <div class="form-text">Generate between 1 and 50 subdomains</div>
+                                    </div>
+                                    
+                                    <div class="mb-3">
+                                        <label class="form-label">Generation Options</label>
+                                        <div class="form-check">
+                                            <input class="form-check-input" type="checkbox" id="use_prefix" name="use_prefix" checked>
+                                            <label class="form-check-label" for="use_prefix">
+                                                Include prefixes (my-, home-, dev-, etc.)
+                                            </label>
+                                        </div>
+                                        <div class="form-check">
+                                            <input class="form-check-input" type="checkbox" id="use_suffix" name="use_suffix" checked>
+                                            <label class="form-check-label" for="use_suffix">
+                                                Include suffixes (-cam, -dvr, -pro, etc.)
+                                            </label>
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <div class="col-md-6">
+                                    <div class="card bg-light">
+                                        <div class="card-header">
+                                            <h6 class="mb-0"><i class="fas fa-lightbulb"></i> Random Suggestions</h6>
+                                        </div>
+                                        <div class="card-body">
+                                            {% for suggestion in suggestions %}
+                                            <div class="mb-2">
+                                                <code>{{ suggestion.full_domain }}</code>
+                                            </div>
+                                            {% endfor %}
+                                            <small class="text-muted">Examples of what will be generated</small>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div class="modal-footer">
+                                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                                <button type="submit" class="btn btn-primary">
+                                    <i class="fas fa-magic"></i> Generate Subdomains
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                    
+                    <!-- Custom Subdomain Tab -->
+                    <div class="tab-pane fade" id="custom" role="tabpanel">
+                        <form method="post" action="/domains/{{ account.id }}/add-custom" class="mt-3">
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <div class="mb-3">
+                                        <label for="subdomain_name" class="form-label">Subdomain Name</label>
+                                        <input type="text" class="form-control" id="subdomain_name" name="subdomain_name" 
+                                               placeholder="my-camera" required>
+                                        <div class="form-text">Enter the subdomain part (before the main domain)</div>
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <div class="mb-3">
+                                        <label for="custom_main_domain" class="form-label">Main Domain</label>
+                                        <select class="form-select" id="custom_main_domain" name="main_domain" required>
+                                            <option value="">Choose a main domain...</option>
+                                            {% for domain in main_domains %}
+                                            <option value="{{ domain }}">{{ domain }}</option>
+                                            {% endfor %}
+                                        </select>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div class="mb-3">
+                                <div class="alert alert-info">
+                                    <strong>Preview:</strong> 
+                                    <span id="domain-preview">
+                                        <span id="subdomain-part">your-subdomain</span>.<span id="maindomain-part">select-domain</span>
+                                    </span>
+                                </div>
+                            </div>
+                            
+                            <div class="modal-footer">
+                                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                                <button type="submit" class="btn btn-success">
+                                    <i class="fas fa-plus"></i> Add Custom Subdomain
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                    
+                    <!-- Manual Entry Tab -->
+                    <div class="tab-pane fade" id="manual" role="tabpanel">
+                        <form method="post" action="/domains/{{ account.id }}/add" class="mt-3">
+                            <div class="mb-3">
+                                <label for="domains" class="form-label">Domain Names</label>
+                                <textarea class="form-control" id="domains" name="domains" rows="8" required 
+                                          placeholder="Enter domain names, one per line:&#10;example.com&#10;mydomain.org&#10;test.net"></textarea>
+                                <div class="form-text">Enter one domain per line (full domain names)</div>
+                            </div>
+                            
+                            <div class="modal-footer">
+                                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                                <button type="submit" class="btn btn-primary">
+                                    <i class="fas fa-plus"></i> Add Domains
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function toggleAll() {
+    const selectAll = document.getElementById('selectAll');
+    const checkboxes = document.querySelectorAll('.domain-checkbox');
+    
+    checkboxes.forEach(checkbox => {
+        checkbox.checked = selectAll.checked;
+    });
+    
+    updateDeleteButton();
+}
+
+function updateDeleteButton() {
+    const checkboxes = document.querySelectorAll('.domain-checkbox:checked');
+    const deleteBtn = document.getElementById('deleteBtn');
+    
+    if (checkboxes.length > 0) {
+        deleteBtn.style.display = 'inline-block';
+    } else {
+        deleteBtn.style.display = 'none';
+    }
+}
+
+function deleteSelected() {
+    const checkboxes = document.querySelectorAll('.domain-checkbox:checked');
+    if (checkboxes.length === 0) {
+        alert('Please select at least one domain to delete.');
+        return;
+    }
+    
+    if (confirm('Are you sure you want to delete ' + checkboxes.length + ' domain(s)?')) {
+        document.getElementById('deleteForm').submit();
+    }
+}
+
+function deleteSingle(domainId) {
+    if (confirm('Are you sure you want to delete this domain?')) {
+        // Create a temporary form for single domain deletion
+        const form = document.createElement('form');
+        form.method = 'post';
+        form.action = '/domains/{{ account.id }}/delete';
+        
+        const input = document.createElement('input');
+        input.type = 'hidden';
+        input.name = 'domain_ids';
+        input.value = domainId;
+        
+        form.appendChild(input);
+        document.body.appendChild(form);
+        form.submit();
+    }
+}
+
+// Search functionality
+document.addEventListener('DOMContentLoaded', function() {
+    const searchInput = document.getElementById('searchInput');
+    if (searchInput) {
+        // Auto-submit search form on Enter key
+        searchInput.addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                this.form.submit();
+            }
+        });
+        
+        // Focus search input if there's a search term
+        if (searchInput.value) {
+            searchInput.focus();
+            searchInput.setSelectionRange(searchInput.value.length, searchInput.value.length);
+        }
+    }
+    
+    // Custom subdomain preview functionality
+    const subdomainInput = document.getElementById('subdomain_name');
+    const mainDomainSelect = document.getElementById('custom_main_domain');
+    const subdomainPart = document.getElementById('subdomain-part');
+    const maindomainPart = document.getElementById('maindomain-part');
+    
+    function updatePreview() {
+        const subdomain = subdomainInput ? subdomainInput.value || 'your-subdomain' : 'your-subdomain';
+        const mainDomain = mainDomainSelect ? mainDomainSelect.value || 'select-domain' : 'select-domain';
+        
+        if (subdomainPart) subdomainPart.textContent = subdomain;
+        if (maindomainPart) maindomainPart.textContent = mainDomain;
+    }
+    
+    if (subdomainInput) {
+        subdomainInput.addEventListener('input', updatePreview);
+    }
+    
+    if (mainDomainSelect) {
+        mainDomainSelect.addEventListener('change', updatePreview);
+    }
+});
+</script>
+{% endblock %}
