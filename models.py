@@ -1,5 +1,5 @@
 from sqlalchemy import create_engine, Column, Integer, String, DateTime
-from sqlalchemy.orm import declarative_base, sessionmaker, Session
+from sqlalchemy.orm import declarative_base, sessionmaker, Session, Mapped, mapped_column
 from passlib.context import CryptContext
 from jose import JWTError, jwt
 from datetime import datetime, timedelta
@@ -53,6 +53,17 @@ class AccountCreate(BaseModel):
 
 class DomainOperation(BaseModel):
     domains: List[str]
+
+class DNSRecordCreate(BaseModel):
+    record_type: str  # A, TXT, MX, SPF
+    name: str  # Node name/hostname
+    value: str  # IP address, text value, etc.
+    priority: Optional[int] = 10  # For MX records
+    ttl: Optional[int] = 120  # Time to live (2 minutes)
+
+class BulkDNSRecordCreate(BaseModel):
+    domain_ids: List[int]  # List of domain IDs to add records to
+    records: List[DNSRecordCreate]  # List of DNS records to add
 
 # Create tables
 Base.metadata.create_all(bind=engine)
@@ -175,4 +186,116 @@ class DynuAPI:
     async def delete_domain(self, domain_id: int):
         async with httpx.AsyncClient() as client:
             response = await client.delete(f"{self.base_url}/dns/{domain_id}", headers=self.headers)
+            return response.status_code == 200
+    
+    async def get_domain_records(self, domain_id: int):
+        """Get all DNS records for a specific domain"""
+        async with httpx.AsyncClient() as client:
+            try:
+                print(f"DEBUG: Fetching DNS records for domain ID: {domain_id}")
+                response = await client.get(f"{self.base_url}/dns/{domain_id}/record", headers=self.headers)
+                print(f"DEBUG: Response status code: {response.status_code}")
+                print(f"DEBUG: Response headers: {dict(response.headers)}")
+                
+                if response.status_code == 200:
+                    try:
+                        data = response.json()
+                        print(f"DEBUG: Response data type: {type(data)}")
+                        print(f"DEBUG: Response data: {data}")
+                        
+                        if isinstance(data, dict):
+                            records = data.get("dnsRecords", [])
+                            print(f"DEBUG: Found {len(records)} records in 'dnsRecords' key")
+                            return records
+                        elif isinstance(data, list):
+                            print(f"DEBUG: Response is a list with {len(data)} records")
+                            return data
+                        else:
+                            print(f"DEBUG: Unexpected data format: {data}")
+                            return []
+                    except Exception as json_error:
+                        print(f"DEBUG: JSON parsing error: {json_error}")
+                        print(f"DEBUG: Raw response text: {response.text}")
+                        return []
+                else:
+                    print(f"DEBUG: Non-200 status code: {response.status_code}")
+                    print(f"DEBUG: Response text: {response.text}")
+                    return []
+                    
+            except Exception as e:
+                print(f"DEBUG: Exception in get_domain_records: {type(e).__name__}: {e}")
+                import traceback
+                print(f"DEBUG: Traceback: {traceback.format_exc()}")
+                return []
+    
+    async def add_dns_record(self, domain_id: int, record_type: str, name: str, value: str, priority: int = 10, ttl: int = 120, state: bool = True):
+        """Add a DNS record to a domain"""
+        async with httpx.AsyncClient() as client:
+            # Normalize node name based on record type and Dynu API requirements
+            normalized_name = self._normalize_node_name(name, record_type.upper())
+            
+            record_data = {
+                "recordType": record_type.upper(),
+                "nodeName": normalized_name,
+                "ttl": ttl,
+                "state": state
+            }
+            
+            # Handle different record types
+            if record_type.upper() == "A":
+                record_data["ipv4Address"] = value
+            elif record_type.upper() == "TXT":
+                record_data["textData"] = value
+            elif record_type.upper() == "MX":
+                record_data["host"] = value
+                record_data["priority"] = priority
+            elif record_type.upper() == "SPF":
+                record_data["textData"] = value
+                record_data["recordType"] = "TXT"  # SPF records are stored as TXT records
+            
+            print(f"DEBUG: Adding {record_type} record with data: {record_data}")
+            response = await client.post(f"{self.base_url}/dns/{domain_id}/record", headers=self.headers, json=record_data)
+            
+            if response.status_code != 200:
+                print(f"DEBUG: Failed to add record. Status: {response.status_code}, Response: {response.text}")
+            
+            return response.status_code == 200, response.json() if response.status_code != 200 else None
+    
+    def _normalize_node_name(self, name: str, record_type: str) -> str:
+        """Normalize node name based on Dynu API requirements for different record types"""
+        # Handle root domain cases
+        if name in ["@", "", "root"]:
+            # For root domain, different record types may need different formats
+            if record_type in ["A", "MX"]:
+                return ""  # Empty string for root domain A and MX records
+            elif record_type in ["TXT", "SPF"]:
+                return ""  # Empty string for root domain TXT records
+            else:
+                return ""
+        
+        # For subdomains, ensure proper format
+        name = name.strip()
+        
+        # Remove any trailing dots
+        if name.endswith('.'):
+            name = name[:-1]
+        
+        # Validate node name format
+        if record_type == "A":
+            # A records: allow alphanumeric, hyphens, but not starting/ending with hyphen
+            if name and not name.replace('-', '').replace('_', '').isalnum():
+                print(f"DEBUG: Invalid A record node name format: '{name}', using empty string")
+                return ""
+        elif record_type == "MX":
+            # MX records: similar validation
+            if name and not name.replace('-', '').replace('_', '').isalnum():
+                print(f"DEBUG: Invalid MX record node name format: '{name}', using empty string")
+                return ""
+        
+        return name
+    
+    async def delete_dns_record(self, domain_id: int, record_id: int):
+        """Delete a DNS record"""
+        async with httpx.AsyncClient() as client:
+            response = await client.delete(f"{self.base_url}/dns/{domain_id}/record/{record_id}", headers=self.headers)
             return response.status_code == 200
