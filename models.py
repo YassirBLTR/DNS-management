@@ -231,35 +231,52 @@ class DynuAPI:
     async def add_dns_record(self, domain_id: int, record_type: str, name: str, value: str, priority: int = 10, ttl: int = 120, state: bool = True):
         """Add a DNS record to a domain"""
         async with httpx.AsyncClient() as client:
-            # Normalize node name based on record type and Dynu API requirements
-            normalized_name = self._normalize_node_name(name, record_type.upper())
-            
-            record_data = {
-                "recordType": record_type.upper(),
-                "nodeName": normalized_name,
-                "ttl": ttl,
-                "state": state
-            }
-            
-            # Handle different record types
-            if record_type.upper() == "A":
-                record_data["ipv4Address"] = value
-            elif record_type.upper() == "TXT":
-                record_data["textData"] = value
-            elif record_type.upper() == "MX":
-                record_data["host"] = value
-                record_data["priority"] = priority
-            elif record_type.upper() == "SPF":
-                record_data["textData"] = value
-                record_data["recordType"] = "TXT"  # SPF records are stored as TXT records
-            
-            print(f"DEBUG: Adding {record_type} record with data: {record_data}")
-            response = await client.post(f"{self.base_url}/dns/{domain_id}/record", headers=self.headers, json=record_data)
-            
-            if response.status_code != 200:
-                print(f"DEBUG: Failed to add record. Status: {response.status_code}, Response: {response.text}")
-            
-            return response.status_code == 200, response.json() if response.status_code != 200 else None
+            try:
+                # Normalize node name based on record type and Dynu API requirements
+                normalized_name = self._normalize_node_name(name, record_type.upper())
+
+                record_data = {
+                    "recordType": record_type.upper(),
+                    "nodeName": normalized_name,
+                    "ttl": ttl,
+                    "state": state
+                }
+
+                # Handle different record types
+                if record_type.upper() == "A":
+                    record_data["ipv4Address"] = value
+                elif record_type.upper() == "TXT":
+                    record_data["textData"] = value
+                elif record_type.upper() == "MX":
+                    record_data["host"] = value
+                    record_data["priority"] = priority
+                elif record_type.upper() == "SPF":
+                    record_data["textData"] = value
+                    record_data["recordType"] = "TXT"  # SPF records are stored as TXT records
+
+                print(f"DEBUG: Adding {record_type} record with data: {record_data}")
+                response = await client.post(f"{self.base_url}/dns/{domain_id}/record", headers=self.headers, json=record_data)
+
+                if response.status_code == 200:
+                    return True, None
+                else:
+                    error_msg = f"Status {response.status_code}: {response.text}"
+                    print(f"DEBUG: Failed to add record. {error_msg}")
+                    try:
+                        error_data = response.json()
+                        if isinstance(error_data, dict) and "message" in error_data:
+                            error_msg = error_data["message"]
+                    except:
+                        pass
+                    return False, error_msg
+            except httpx.RequestError as e:
+                error_msg = f"Network error: {str(e)}"
+                print(f"DEBUG: Request error in add_dns_record: {error_msg}")
+                return False, error_msg
+            except Exception as e:
+                error_msg = f"Unexpected error: {str(e)}"
+                print(f"DEBUG: Unexpected error in add_dns_record: {error_msg}")
+                return False, error_msg
     
     def _normalize_node_name(self, name: str, record_type: str) -> str:
         """Normalize node name based on Dynu API requirements for different record types"""

@@ -14,6 +14,18 @@ import json
 router = APIRouter()
 templates = Jinja2Templates(directory="templates")
 
+# Flash message utilities
+def set_flash(request: Request, message: str, category: str = "info"):
+    """Set a flash message in the session"""
+    if "flash_messages" not in request.session:
+        request.session["flash_messages"] = []
+    request.session["flash_messages"].append({"message": message, "category": category})
+
+def get_flashed_messages(request: Request):
+    """Get and clear flash messages from the session"""
+    messages = request.session.pop("flash_messages", [])
+    return messages
+
 # Authentication routes
 @router.get("/", response_class=HTMLResponse)
 async def login_page(request: Request):
@@ -72,7 +84,8 @@ async def dashboard(request: Request, current_user: User = Depends(get_current_u
     return templates.TemplateResponse("dashboard.html", {
         "request": request,
         "user": current_user,
-        "accounts": accounts
+        "accounts": accounts,
+        "messages": get_flashed_messages(request)
     })
 
 # Account management routes
@@ -82,7 +95,8 @@ async def accounts_page(request: Request, current_user: User = Depends(get_curre
     return templates.TemplateResponse("accounts.html", {
         "request": request,
         "user": current_user,
-        "accounts": accounts
+        "accounts": accounts,
+        "messages": get_flashed_messages(request)
     })
 
 @router.post("/accounts")
@@ -164,11 +178,13 @@ async def domains_page(
         "per_page": per_page,
         "show_all": show_all,
         "main_domains": main_domains,
-        "suggestions": suggestions
+        "suggestions": suggestions,
+        "messages": get_flashed_messages(request)
     })
 
 @router.post("/domains/{account_id}/add")
 async def add_domains(
+    request: Request,
     account_id: int,
     domains: str = Form(...),
     current_user: User = Depends(get_current_user_from_cookie),
@@ -177,17 +193,25 @@ async def add_domains(
     account = db.query(Account).filter(Account.id == account_id, Account.user_id == current_user.id).first()
     if not account:
         raise HTTPException(status_code=404, detail="Account not found")
-    
+
     dynu_api = DynuAPI(account.api_key)
     domain_list = [domain.strip() for domain in domains.split('\n') if domain.strip()]
-    
+
+    success_count = 0
     for domain in domain_list:
-        await dynu_api.add_domain(domain)
-    
+        if await dynu_api.add_domain(domain):
+            success_count += 1
+
+    if success_count > 0:
+        set_flash(request, f"Successfully added {success_count} domain(s)", "success")
+    if success_count < len(domain_list):
+        set_flash(request, f"Failed to add {len(domain_list) - success_count} domain(s)", "error")
+
     return RedirectResponse(url=f"/domains/{account_id}", status_code=status.HTTP_302_FOUND)
 
 @router.post("/domains/{account_id}/delete")
 async def delete_domains(
+    request: Request,
     account_id: int,
     domain_ids: List[int] = Form(...),
     current_user: User = Depends(get_current_user_from_cookie),
@@ -196,16 +220,24 @@ async def delete_domains(
     account = db.query(Account).filter(Account.id == account_id, Account.user_id == current_user.id).first()
     if not account:
         raise HTTPException(status_code=404, detail="Account not found")
-    
+
     dynu_api = DynuAPI(account.api_key)
-    
+
+    success_count = 0
     for domain_id in domain_ids:
-        await dynu_api.delete_domain(domain_id)
-    
+        if await dynu_api.delete_domain(domain_id):
+            success_count += 1
+
+    if success_count > 0:
+        set_flash(request, f"Successfully deleted {success_count} domain(s)", "success")
+    if success_count < len(domain_ids):
+        set_flash(request, f"Failed to delete {len(domain_ids) - success_count} domain(s)", "error")
+
     return RedirectResponse(url=f"/domains/{account_id}", status_code=status.HTTP_302_FOUND)
 
 @router.post("/domains/{account_id}/generate")
 async def generate_subdomains(
+    request: Request,
     account_id: int,
     main_domain: str = Form(...),
     count: int = Form(10),
@@ -217,34 +249,36 @@ async def generate_subdomains(
     account = db.query(Account).filter(Account.id == account_id, Account.user_id == current_user.id).first()
     if not account:
         raise HTTPException(status_code=404, detail="Account not found")
-    
+
     try:
         subdomain_gen = SubdomainGenerator()
         generated_subdomains = subdomain_gen.generate_subdomains(
             main_domain=main_domain,
-            count=min(count, 50),  # Limit to 50 subdomains max
+            count=min(count, 50),
             use_prefix=use_prefix,
             use_suffix=use_suffix
         )
-        
+
         dynu_api = DynuAPI(account.api_key)
         success_count = 0
-        
+
         for subdomain in generated_subdomains:
             if await dynu_api.add_domain(subdomain):
                 success_count += 1
-        
-        # You might want to add flash messages here for user feedback
-        print(f"Successfully added {success_count} out of {len(generated_subdomains)} subdomains")
-        
+
+        if success_count > 0:
+            set_flash(request, f"Successfully added {success_count} out of {len(generated_subdomains)} subdomains", "success")
+        if success_count < len(generated_subdomains):
+            set_flash(request, f"Failed to add {len(generated_subdomains) - success_count} subdomains", "error")
+
     except ValueError as e:
-        print(f"Error generating subdomains: {e}")
-        # Handle error - you might want to add flash messages
-    
+        set_flash(request, f"Error: {str(e)}", "error")
+
     return RedirectResponse(url=f"/domains/{account_id}", status_code=status.HTTP_302_FOUND)
 
 @router.post("/domains/{account_id}/add-custom")
 async def add_custom_subdomain(
+    request: Request,
     account_id: int,
     subdomain_name: str = Form(...),
     main_domain: str = Form(...),
@@ -254,23 +288,22 @@ async def add_custom_subdomain(
     account = db.query(Account).filter(Account.id == account_id, Account.user_id == current_user.id).first()
     if not account:
         raise HTTPException(status_code=404, detail="Account not found")
-    
+
     try:
         subdomain_gen = SubdomainGenerator()
         full_subdomain = subdomain_gen.create_custom_subdomain(subdomain_name, main_domain)
-        
+
         dynu_api = DynuAPI(account.api_key)
         success = await dynu_api.add_domain(full_subdomain)
-        
+
         if success:
-            print(f"Successfully added custom subdomain: {full_subdomain}")
+            set_flash(request, f"Successfully added subdomain: {full_subdomain}", "success")
         else:
-            print(f"Failed to add custom subdomain: {full_subdomain}")
-            
+            set_flash(request, f"Failed to add subdomain: {full_subdomain}", "error")
+
     except ValueError as e:
-        print(f"Error creating custom subdomain: {e}")
-        # Handle error - you might want to add flash messages
-    
+        set_flash(request, f"Error: {str(e)}", "error")
+
     return RedirectResponse(url=f"/domains/{account_id}", status_code=status.HTTP_302_FOUND)
 
 # Debug route to find domain ID by name
@@ -345,7 +378,8 @@ async def domain_records_page(
             "domain": domain,
             "records": records,
             "domain_id": domain_id,
-            "account_id": account_id
+            "account_id": account_id,
+            "messages": get_flashed_messages(request)
         })
         
     except HTTPException:
@@ -358,6 +392,7 @@ async def domain_records_page(
 
 @router.post("/domains/{account_id}/{domain_id}/records/add")
 async def add_dns_record(
+    request: Request,
     account_id: int,
     domain_id: int,
     record_type: str = Form(...),
@@ -371,18 +406,20 @@ async def add_dns_record(
     account = db.query(Account).filter(Account.id == account_id, Account.user_id == current_user.id).first()
     if not account:
         raise HTTPException(status_code=404, detail="Account not found")
-    
+
     dynu_api = DynuAPI(account.api_key)
     success, error = await dynu_api.add_dns_record(domain_id, record_type, name, value, priority, ttl)
-    
-    if not success:
-        print(f"Failed to add DNS record: {error}")
-        # You might want to add flash messages here for user feedback
-    
+
+    if success:
+        set_flash(request, f"Successfully added {record_type} record", "success")
+    else:
+        set_flash(request, f"Failed to add DNS record: {error}", "error")
+
     return RedirectResponse(url=f"/domains/{account_id}/{domain_id}/records", status_code=status.HTTP_302_FOUND)
 
 @router.post("/domains/{account_id}/{domain_id}/records/{record_id}/delete")
 async def delete_dns_record(
+    request: Request,
     account_id: int,
     domain_id: int,
     record_id: int,
@@ -392,18 +429,20 @@ async def delete_dns_record(
     account = db.query(Account).filter(Account.id == account_id, Account.user_id == current_user.id).first()
     if not account:
         raise HTTPException(status_code=404, detail="Account not found")
-    
+
     dynu_api = DynuAPI(account.api_key)
     success = await dynu_api.delete_dns_record(domain_id, record_id)
-    
-    if not success:
-        print(f"Failed to delete DNS record {record_id}")
-        # You might want to add flash messages here for user feedback
-    
+
+    if success:
+        set_flash(request, "DNS record deleted successfully", "success")
+    else:
+        set_flash(request, f"Failed to delete DNS record", "error")
+
     return RedirectResponse(url=f"/domains/{account_id}/{domain_id}/records", status_code=status.HTTP_302_FOUND)
 
 @router.post("/domains/{account_id}/bulk-add-records")
 async def bulk_add_dns_records(
+    request: Request,
     account_id: int,
     domain_ids: List[int] = Form(...),
     record_type: str = Form(...),
@@ -411,7 +450,7 @@ async def bulk_add_dns_records(
     value: str = Form(...),
     priority: int = Form(10),
     ttl: int = Form(3600),
-    state: bool = Form(True), # <--- Added 'state' parameter
+    state: bool = Form(True),
     current_user: User = Depends(get_current_user_from_cookie),
     db: Session = Depends(get_db)
 ):
@@ -419,20 +458,19 @@ async def bulk_add_dns_records(
     account = db.query(Account).filter(Account.id == account_id, Account.user_id == current_user.id).first()
     if not account:
         raise HTTPException(status_code=404, detail="Account not found")
-    
+
     dynu_api = DynuAPI(account.api_key)
     success_count = 0
     error_count = 0
     errors = []
-    
+
     # Get domain names for logging
     domains_data = await dynu_api.get_domains()
     domain_names = {d.get("id"): d.get("name") for d in domains_data.get("domains", [])}
-    
+
     for domain_id in domain_ids:
         try:
-            # <--- 'state' included in the call
-            success, error = await dynu_api.add_dns_record(domain_id, record_type, name, value, priority, ttl, state=state) 
+            success, error = await dynu_api.add_dns_record(domain_id, record_type, name, value, priority, ttl, state=state)
             if success:
                 success_count += 1
                 print(f"Successfully added {record_type} record to domain {domain_names.get(domain_id, domain_id)}")
@@ -448,11 +486,10 @@ async def bulk_add_dns_records(
             error_msg = f"Exception adding record to {domain_name}: {str(e)}"
             errors.append(error_msg)
             print(error_msg)
-    
-    print(f"Bulk DNS record operation completed: {success_count} successful, {error_count} failed")
-    if errors:
-        print("Errors encountered:")
-        for error in errors:
-            print(f"   - {error}")
-    
+
+    if success_count > 0:
+        set_flash(request, f"Successfully added {record_type} records to {success_count} domain(s)", "success")
+    if error_count > 0:
+        set_flash(request, f"Failed to add records to {error_count} domain(s)", "error")
+
     return RedirectResponse(url=f"/domains/{account_id}", status_code=status.HTTP_302_FOUND)

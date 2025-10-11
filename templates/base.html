@@ -49,6 +49,16 @@
             <main class="col-12">
             {% endif %}
                 <div class="pt-3">
+                    {% if messages %}
+                    <div class="flash-messages">
+                        {% for message in messages %}
+                        <div class="alert alert-{{ 'success' if message.category == 'success' else 'danger' if message.category == 'error' else 'info' }} alert-dismissible fade show" role="alert">
+                            {{ message.message }}
+                            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                        </div>
+                        {% endfor %}
+                    </div>
+                    {% endif %}
                     {% block content %}{% endblock %}
                 </div>
             </main>
