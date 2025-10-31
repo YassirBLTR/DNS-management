@@ -14,9 +14,9 @@
             <a class="navbar-brand" href="/dashboard">
                 <i class="fas fa-globe"></i> DNS Management
             </a>
-            {% if user %}
+            {% if current_user %}
             <div class="navbar-nav ms-auto">
-                <span class="navbar-text me-3">Welcome, {{ user.username }}!</span>
+                <span class="navbar-text me-3">Welcome, {{ current_user.username }}!</span>
                 <a class="btn btn-outline-light btn-sm" href="/logout">
                     <i class="fas fa-sign-out-alt"></i> Logout
                 </a>
@@ -27,7 +27,7 @@
 
     <div class="container-fluid">
         <div class="row">
-            {% if user %}
+            {% if current_user %}
             <nav class="col-md-2 d-md-block sidebar collapse">
                 <div class="position-sticky pt-3">
                     <ul class="nav flex-column">
@@ -41,6 +41,13 @@
                                 <i class="fas fa-user-cog"></i> Manage Accounts
                             </a>
                         </li>
+                        {% if current_user.is_admin %}
+                            <li class="nav-item">
+                                <a class="nav-link" href="/admin/create_user">
+                                    <i class="fas fa-user-cog"></i> Create Users
+                                </a>
+                            </li>
+                        {% endif %}
                     </ul>
                 </div>
             </nav>

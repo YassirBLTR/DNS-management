@@ -52,6 +52,7 @@
                                 <li><a class="dropdown-item" href="?page=1&per_page=10{% if search %}&search={{ search }}{% endif %}">10 per page</a></li>
                                 <li><a class="dropdown-item" href="?page=1&per_page=25{% if search %}&search={{ search }}{% endif %}">25 per page</a></li>
                                 <li><a class="dropdown-item" href="?page=1&per_page=50{% if search %}&search={{ search }}{% endif %}">50 per page</a></li>
+                                <li><a class="dropdown-item" href="?page=1&per_page=100{% if search %}&search={{ search }}{% endif %}">100 per page</a></li>
                                 <li><hr class="dropdown-divider"></li>
                                 <li><a class="dropdown-item" href="?page=1&per_page=all{% if search %}&search={{ search }}{% endif %}"><i class="fas fa-list"></i> Show All</a></li>
                             </ul>
@@ -63,6 +64,20 @@
     </div>
 </div>
 
+{% if bulk_record_errors %}
+<div class="row mb-3">
+    <div class="col-12">
+        <div class="alert alert-danger">
+            <h5 class="mb-2"><i class="fas fa-exclamation-triangle"></i> Failed to add records</h5>
+            <ul class="mb-0">
+                {% for err in bulk_record_errors %}
+                <li>{{ err }}</li>
+                {% endfor %}
+            </ul>
+        </div>
+    </div>
+</div>
+{% endif %}
 <!-- Account Info Row -->
 <div class="row mb-4">
     <div class="col-12">

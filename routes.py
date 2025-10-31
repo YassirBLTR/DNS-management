@@ -54,36 +54,43 @@ async def register_page(request: Request):
     return templates.TemplateResponse("register.html", {"request": request})
 
 @router.post("/register")
-async def register(request: Request, username: str = Form(...), password: str = Form(...), db: Session = Depends(get_db)):
-    # Check if user already exists
-    existing_user = db.query(User).filter(User.username == username).first()
-    if existing_user:
-        return templates.TemplateResponse("register.html", {
-            "request": request,
-            "error": "Username already exists"
-        })
-    
-    # Create new user
-    hashed_password = get_password_hash(password)
-    user = User(username=username, hashed_password=hashed_password)
-    db.add(user)
-    db.commit()
-    
-    return RedirectResponse(url="/", status_code=status.HTTP_302_FOUND)
+async def disabled_register():
+    raise HTTPException(status_code=403, detail="Registration disabled.")
 
 @router.get("/logout")
 async def logout():
     response = RedirectResponse(url="/", status_code=status.HTTP_302_FOUND)
     response.delete_cookie(key="access_token")
     return response
+@router.get("/admin/create_user", response_class=HTMLResponse)
+async def show_create_user_form(request: Request, current_user = Depends(get_current_user_from_cookie)):
+    if not current_user.is_admin:
+        raise HTTPException(status_code=403, detail="Access forbidden")
+    
+    return templates.TemplateResponse("admin_create_user.html", {"request": request})
+@router.post("/admin/create_user")
+async def create_user_admin(
+    username: str, 
+    password: str, 
+    db: Session = Depends(get_db), 
+    current_user = Depends(get_current_user_from_cookie)
+):
+    if not current_user.is_admin:
+        raise HTTPException(status_code=403, detail="Access forbidden")
 
+    hashed_password = get_password_hash(password)
+    user = User(username=username, hashed_password=hashed_password)
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    return {"message": f"User '{username}' created successfully."}
 # Dashboard routes
 @router.get("/dashboard", response_class=HTMLResponse)
 async def dashboard(request: Request, current_user: User = Depends(get_current_user_from_cookie), db: Session = Depends(get_db)):
     accounts = db.query(Account).filter(Account.user_id == current_user.id).all()
     return templates.TemplateResponse("dashboard.html", {
         "request": request,
-        "user": current_user,
+        "current_user": current_user,
         "accounts": accounts,
         "messages": get_flashed_messages(request)
     })
@@ -145,7 +152,7 @@ async def domains_page(
     else:
         try:
             per_page_int = int(per_page)
-            per_page_int = max(1, min(50, per_page_int))  # Limit per_page between 1 and 50
+            per_page_int = max(1, per_page_int)  # Limit per_page between 1 and 100
             show_all = False
         except ValueError:
             per_page_int = 10  # Default fallback
@@ -154,7 +161,8 @@ async def domains_page(
     
     dynu_api = DynuAPI(account.api_key)
     domains_data = await dynu_api.get_domains(page=page, per_page=per_page_int, search=search)
-    
+    print(f"DEBUG: per_page param received = {per_page}")
+    print(f"DEBUG: per_page_int after parsing = {per_page_int}")
     # Debug: Print domain data to see the structure
     print(f"DEBUG: Domains data structure: {domains_data}")
     for i, domain in enumerate(domains_data.get("domains", [])[:3]):  # Print first 3 domains
@@ -167,7 +175,8 @@ async def domains_page(
     
     print(f"DEBUG: main_domains count: {len(main_domains)}")
     print(f"DEBUG: suggestions count: {len(suggestions)}")
-    
+    print(f"DEBUG: per_page param received = {per_page}")
+    print(f"DEBUG: per_page_int after parsing = {per_page_int}")
     return templates.TemplateResponse("domains.html", {
         "request": request,
         "user": current_user,
@@ -179,6 +188,7 @@ async def domains_page(
         "show_all": show_all,
         "main_domains": main_domains,
         "suggestions": suggestions,
+        "bulk_record_errors": request.session.pop("bulk_record_errors", []),
         "messages": get_flashed_messages(request)
     })
 
@@ -347,10 +357,11 @@ async def domain_records_page(
         print(f"DEBUG: Found account: {account.name}")
         dynu_api = DynuAPI(account.api_key)
         
-        # Get domain details
-        print(f"DEBUG: Fetching domains list to find domain_id={domain_id}")
-        domains_data = await dynu_api.get_domains()
-        print(f"DEBUG: Got domains data: {domains_data}")
+        # Get domain details - fetch ALL domains without pagination limits
+        print(f"DEBUG: Fetching all domains list to find domain_id={domain_id}")
+        domains_data = await dynu_api.get_domains(page=1, per_page=1000)  # Set high per_page to get all domains
+        ids = [d["id"] for d in domains_data["domains"]]
+        print(f"DEBUG: Got domains ids: {ids}")
         
         domain = None
         for d in domains_data.get("domains", []):
@@ -491,5 +502,6 @@ async def bulk_add_dns_records(
         set_flash(request, f"Successfully added {record_type} records to {success_count} domain(s)", "success")
     if error_count > 0:
         set_flash(request, f"Failed to add records to {error_count} domain(s)", "error")
+        request.session["bulk_record_errors"] = errors
 
     return RedirectResponse(url=f"/domains/{account_id}", status_code=status.HTTP_302_FOUND)

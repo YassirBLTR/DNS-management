@@ -14,6 +14,23 @@ class Settings:
     # Database
     DATABASE_URL: str = os.getenv("DATABASE_URL", "sqlite:///./dns_management.db")
     
+    # Alternative database configurations
+    @property
+    def database_url_with_fallback(self) -> str:
+        """Get database URL with PostgreSQL fallback if SQLite3 is not available"""
+        db_url = self.DATABASE_URL
+        
+        # If SQLite is specified but not available, suggest PostgreSQL
+        if db_url.startswith("sqlite:"):
+            try:
+                import sqlite3
+                return db_url
+            except ImportError:
+                print("WARNING: SQLite3 not available. Consider using PostgreSQL:")
+                print("DATABASE_URL=postgresql://user:password@localhost/dns_management")
+                return db_url
+        return db_url
+    
     # Environment
     ENVIRONMENT: str = os.getenv("ENVIRONMENT", "development")
     DEBUG: bool = os.getenv("DEBUG", "False").lower() == "true"

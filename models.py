@@ -1,4 +1,4 @@
-from sqlalchemy import create_engine, Column, Integer, String, DateTime
+from sqlalchemy import create_engine, Column, Integer, String, DateTime, Boolean
 from sqlalchemy.orm import declarative_base, sessionmaker, Session, Mapped, mapped_column
 from passlib.context import CryptContext
 from jose import JWTError, jwt
@@ -13,7 +13,21 @@ from config import settings
 
 # Database setup
 SQLALCHEMY_DATABASE_URL = settings.DATABASE_URL
-engine = create_engine(SQLALCHEMY_DATABASE_URL, connect_args={"check_same_thread": False})
+
+# Handle SQLite3 connection with better error handling
+try:
+    if SQLALCHEMY_DATABASE_URL.startswith("sqlite:"):
+        engine = create_engine(SQLALCHEMY_DATABASE_URL, connect_args={"check_same_thread": False})
+    else:
+        # For PostgreSQL and other databases
+        engine = create_engine(SQLALCHEMY_DATABASE_URL)
+except Exception as e:
+    print(f"Database connection error: {e}")
+    print("Please ensure your database is properly configured.")
+    if "sqlite3" in str(e).lower():
+        print("SQLite3 module not found. Please install libsqlite3-dev and rebuild Python.")
+        print("Alternative: Use PostgreSQL by setting DATABASE_URL=postgresql://user:pass@host/db")
+    raise
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
@@ -22,7 +36,7 @@ SECRET_KEY = settings.SECRET_KEY
 ALGORITHM = settings.ALGORITHM
 ACCESS_TOKEN_EXPIRE_MINUTES = settings.ACCESS_TOKEN_EXPIRE_MINUTES
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+pwd_context = CryptContext(schemes=["bcrypt_sha256"], deprecated="auto")
 
 # Database Models
 class User(Base):
@@ -32,6 +46,7 @@ class User(Base):
     username = Column(String, unique=True, index=True)
     hashed_password = Column(String)
     created_at = Column(DateTime, default=datetime.utcnow)
+    is_admin = Column(Boolean, default=False)  
 
 class Account(Base):
     __tablename__ = "accounts"
@@ -79,10 +94,8 @@ def get_db():
 # Authentication functions
 def verify_password(plain_password, hashed_password):
     return pwd_context.verify(plain_password, hashed_password)
-
 def get_password_hash(password):
     return pwd_context.hash(password)
-
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     to_encode = data.copy()
     if expires_delta:
@@ -252,7 +265,7 @@ class DynuAPI:
                     record_data["priority"] = priority
                 elif record_type.upper() == "SPF":
                     record_data["textData"] = value
-                    record_data["recordType"] = "TXT"  # SPF records are stored as TXT records
+                    record_data["recordType"] = "SPF"  # SPF records are stored as TXT records
 
                 print(f"DEBUG: Adding {record_type} record with data: {record_data}")
                 response = await client.post(f"{self.base_url}/dns/{domain_id}/record", headers=self.headers, json=record_data)
